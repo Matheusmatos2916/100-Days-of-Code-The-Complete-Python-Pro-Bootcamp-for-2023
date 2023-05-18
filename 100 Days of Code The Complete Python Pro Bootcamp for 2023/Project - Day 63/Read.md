@@ -1,0 +1,4 @@
+## Databases with SQLite and SQLAlchemy
+
+
+"Databases with SQLite and SQLAlchemy" is a repository on GitHub that contains resources for learning how to work with databases using the SQLite and SQLAlchemy libraries. The repository includes introductory material on SQL, as well as practical examples and exercises for working with databases. The materials cover a range of topics, from basic querying to more advanced concepts like database normalization and data modeling. Additionally, the repository provides instructions for setting up a development environment and working with SQLite and SQLAlchemy in Python. Whether you're new to databases or looking to expand your skills, "Databases with SQLite and SQLAlchemy" offers a valuable resource for learning and practicing database management.
