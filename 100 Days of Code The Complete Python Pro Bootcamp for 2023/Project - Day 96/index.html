@@ -1,0 +1,391 @@
+import datetime
+import requests
+import json
+from api_key_util import getAuthHeader
+from flask import Flask, render_template, redirect, url_for, flash,request
+from flask_bootstrap import Bootstrap
+ 
+from datetime import date
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask_sqlalchemy import SQLAlchemy
+ 
+import flask_login
+from flask_login import  UserMixin, login_user, LoginManager, login_required, current_user, logout_user
+from forms import ProductForm,EmpForm,OrderForm
+ 
+app = Flask(__name__)
+app.config['SECRET_KEY'] = '8BYkEfBA6O6donzWlSihBXox7C0sKR6b'
+ 
+Bootstrap(app)
+ 
+##CONNECT TO DB
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///shopping.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+ 
+ 
+##CONFIGURE TABLES
+with app.app_context():
+    class Products(db.Model):
+        __tablename__ = "products"
+        productCode = db.Column(db.Integer, primary_key=True)
+        productname = db.Column(db.String(250), nullable=False)
+        productline = db.Column(db.String(250), unique=True, nullable=False)
+        vendor = db.Column(db.String(250), nullable=False)
+        description= db.Column(db.String(250), nullable=False)
+        image = db.Column(db.String(250), nullable=False)
+        quantityinstock = db.Column(db.Integer, nullable=False)
+        price = db.Column(db.Integer, nullable=False)
+ 
+    class Orders(db.Model):
+        __tablename__ = "orders"
+        orderno = db.Column(db.Integer, primary_key=True)
+        orderDate = db.Column(db.Date, nullable=False)
+        requiredDate = db.Column(db.Date, unique=True, nullable=False)
+        shippedDate = db.Column(db.Date, nullable=False)
+        status= db.Column(db.String(20), nullable=False)
+        comments = db.Column(db.String(250), nullable=False)
+        quantityordered= db.Column(db.Integer, nullable=False)
+        customernumber = db.Column(db.Integer, nullable=False)
+    db.create_all()
+ 
+ 
+@app.route('/')
+def get_all_products():
+    products = Products.query.all()
+    return render_template("index.html", products=products)
+ 
+ 
+@app.route('/get_all_orders')
+def get_all_orders():
+    orders = Orders.query.all()
+    return render_template("orders.html", all_orders=orders)
+ 
+ 
+@app.route('/register')
+def register():
+    form =EmpForm()
+    return render_template("register.html",form=form)
+ 
+ 
+@app.route('/login')
+def login():
+    return render_template("login.html")
+ 
+ 
+@app.route('/logout')
+def logout():
+    return redirect(url_for('get_all_posts'))
+ 
+ 
+@app.route("/show_product/<int:productid>")
+def show_product(productid):
+    requested_product = Products.query.get(productid)
+    return render_template("productdetail.html", product=requested_product)
+ 
+cart_items=[]
+@app.route("/addtocart/<productid>")
+def addtocart(productid):
+    cart_items.append(productid)
+    products = Products.query.all()
+    print(cart_items)
+    return render_template("index.html",products=products)
+ 
+@app.route("/about")
+def about():
+    return render_template("about.html")
+ 
+ 
+@app.route("/contact")
+def contact():
+    return render_template("contact.html")
+ 
+ 
+@app.route("/new-product", methods = ['GET', 'POST'])
+def add_new_product():
+    form = ProductForm()
+    if request.method=='POST' and form.validate_on_submit():
+        new_product = Products(
+            name=form.title.data,
+            productline=form.subtitle.data,
+            vendor=form.body.data,
+            description=form.img_url.data,
+            quantityinstock=current_user,
+            price=form.price.data
+ 
+            # date=date.today().strftime("%B %d, %Y")
+        )
+ 
+        db.session.add(new_product)
+        db.session.commit()
+        return redirect(url_for("get_all_products"))
+    return render_template("make-post.html", form=form)
+ 
+@app.route("/checkout", methods = ['GET', 'POST'])
+def checkout():
+    requested_products=[]
+    cart_total=0
+    i=0
+    for item in cart_items:
+        product=Products.query.get(item)
+        requested_products.append(product)
+        cart_total+=requested_products[i].price
+        i+=1
+ 
+    return render_template("checkout.html",req_items=requested_products,cart_total=cart_total)
+ 
+@app.route("/paybill/<amount>", methods = ['GET', 'POST'])
+def paybill(amount):
+    BASE_URL = 'https://sandbox.api.mastercard.com/openapis'
+ 
+    uri = f'{BASE_URL}/notifications/transactions'
+ 
+    CARD_REF = 'CARD REFERENCE FROM CONSENT FLOW'  # TODO: Replace this with cardReference from consent flow
+ 
+    # The test transaction (as a json string)
+    trans = json.dumps({
+        "cardholderAmount":amount,
+        "cardholderCurrency": "INR",
+        "cardReference": CARD_REF,
+        "cardLastNumbers": 2323,
+        "merchantName": "Centra"
+    })
+ 
+    # Create OAuth header for this request
+    authHeader = getAuthHeader(uri, method='POST', payload=trans)
+ 
+    headerdict = {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json'
+    }
+ 
+    # Call the API
+    response = requests.post(uri, headers=headerdict, data=trans)
+ 
+    print(f'response={response.status_code}')
+    if response.status_code==200:
+        for item in cart_items:
+            product = Products.query.get(item)
+            product.quantityinstock -= 1
+        products = Products.query.all()
+        return render_template("index.html", products=products)
+    else:
+        return redirect(url_for('checkout'))
+ 
+ 
+@app.route("/placeorder/<productid>", methods = ['GET', 'POST'])
+def placeorder(productid):
+    form = OrderForm()
+    if request.method=='POST' and form.validate_on_submit():
+        new_order = Orders(
+            product_name=form.product_name.data,
+            vendor=form.vendor.data,
+            orderdate=datetime.datetime.today().strftime('%d,%M,%y'),
+            comments=form.comments.data,
+            customer_number=current_user,
+            requireddate=datetime.datetime.today().strftime('%d,%M,%y')
+ 
+            # date=date.today().strftime("%B %d, %Y")
+        )
+ 
+        db.session.add(new_order)
+        db.session.commit()
+        return redirect(url_for("get_all_orders"))
+    return render_template('orders.html', form=form)
+ 
+@app.route("/edit-product/<int:product_id>")
+def edit_product(product_id):
+    product = Products.query.get(product_id)
+    edit_form = ProductForm(
+        title=product.title,
+        subtitle=product.subtitle,
+        img_url=product.img_url,
+        author=product.author,
+        body=product.body
+    )
+    if edit_form.validate_on_submit():
+        product.title = edit_form.title.data
+        product.subtitle = edit_form.subtitle.data
+        product.img_url = edit_form.img_url.data
+        product.author = edit_form.author.data
+        product.body = edit_form.body.data
+        db.session.commit()
+        return redirect(url_for("show_product", product_id=product.id))
+    products=Products.query.all()
+    return render_template("index.html",products =products)
+ 
+ 
+@app.route("/delete/<int:post_id>")
+def delete_post(post_id):
+    post_to_delete = Products.query.get(post_id)
+    db.session.delete(post_to_delete)
+    db.session.commit()
+    return redirect(url_for('get_all_posts'))
+ 
+ 
+if __name__ == "__main__":
+    app.run(debug=True)
+ 
+index.html
+{% include "header.html" %}
+ 
+  <!-- Page Header -->
+  <header class="masthead" style="background-image: url('https://images.squarespace-cdn.com/content/v1/511585b3e4b0b8b2ffe19dc6/1520877935366-841HHIEE87KRLUJDKAOY/accessories.png')">
+    <div class="overlay"></div>
+    <div class="container">
+      <div class="row">
+        <div class="col-lg-8 col-md-10 mx-auto">
+          <div class="site-heading">
+            <h1>Accessories Adda</h1>
+            <span class="subheading">A collection of Exclusive and Amazing Accessories.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+ 
+  <!-- Main Content -->
+  <div class="container">
+    <div class="row">
+      <div class="col-lg-8 col-md-10 mx-auto">
+        {% for product in products %}
+        <div class="post-preview">
+ 
+            <h2 class="post-title">
+             <a href="{{ url_for('show_product',productid=product.productCode) }}">  {{product.productname}}  </a>
+            </h2>
+            <hr>
+            <h7 class="post-subtitle">
+              {{product.productline}}
+              <br>
+              {{product.description}}
+              <br>
+              Price: {{product.price}} Rs.<br>
+            </h7>
+            <img src="{{product.image}}" alt="Italian Trulli" width="200" height="200">
+          <h5>
+             <a href="{{ url_for('addtocart',productid=product.productCode) }}"> Add to Cart </a>
+            </h5>
+        </div>
+        <hr>
+        {% endfor %}
+<a href="{{url_for('checkout') }}">Checkout</a>
+ 
+        <!-- New Post -->
+        <div class="clearfix">
+          <a class="btn btn-primary float-right" href="{{url_for('add_new_product')}}">Create New Product</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <hr>
+ 
+{% include "footer.html" %}
+ 
+orders.html
+ 
+  <!-- Main Content -->
+  <div class="container">
+    <div class="row">
+      <div class="col-lg-8 col-md-10 mx-auto">
+        {% for Order in Orders %}
+        <div class="post-preview">
+ 
+            <h2 class="post-title">
+             <a href="{{ url_for('show_Order',Orderid=Order.Ordernumber ) }}">  {{Order.productname}}  </a>
+            </h2>
+            <h3 class="post-subtitle">
+              {{Order.orderLineNumber}}
+            </h3>
+            <h3 class="post-subtitle">
+              {{Order.quantityOrdered}}
+            </h3>
+            <h3 class="post-subtitle">
+              {{Order.priceEach}}
+            </h3>
+ 
+ 
+        </div>
+        <hr>
+        {% endfor %}
+ 
+ 
+        <!-- New Post -->
+        <div class="clearfix">
+          <a class="btn btn-primary float-right" href="{{url_for('placeorder')}}">Create New Order</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <hr>
+ 
+{% include "footer.html" %}
+ 
+checkout.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<h1> Checkout</h1>
+<h3>
+    Your total bill amount is: {{cart_total}}
+       {% for product in req_items %}
+        <div class="post-preview">
+ 
+            <h5 class="post-title">
+               {{product.productname}}
+            </h5>
+ 
+            <h7 class="post-subtitle">
+              {{product.productline}}--
+ 
+              {{product.description}}--
+ 
+              Price: {{product.price}} Rs.
+            </h7><br>
+            <img src="{{product.image}}" alt="Italian Trulli" width="100" height="100">
+ 
+        </div>
+        <hr>
+        {% endfor %}
+</h3>
+<h4><a href="{{ url_for('paybill',amount=cart_total) }}"> Pay Now</a></h4>
+</body>
+</html>
+login.html
+{% extends 'bootstrap/base.html' %}
+{% import "bootstrap/wtf.html" as wtf %}
+ 
+{% block content %}
+{% include "header.html" %}
+ 
+  <!-- Page Header -->
+  <header class="masthead" style="background-image: url('https://images.unsplash.com/photo-1484100356142-db6ab6244067?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=800&q=80')">
+    <div class="overlay"></div>
+    <div class="container">
+      <div class="row">
+        <div class="col-lg-8 col-md-10 mx-auto">
+          <div class="page-heading">
+            <h1>Log In</h1>
+            <span class="subheading">Welcome Back!</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+ 
+  <div class="container">
+    <div class="row">
+ 
+      <div class="col-lg-8 col-md-10 mx-auto content">
+        {{ wtf.quick_form(form, novalidate=True, button_map={"submit": "primary"}) }}
+      </div>
+    </div>
+  </div>
+ 
+ 
+{% include "footer.html" %}
+{% endblock %}

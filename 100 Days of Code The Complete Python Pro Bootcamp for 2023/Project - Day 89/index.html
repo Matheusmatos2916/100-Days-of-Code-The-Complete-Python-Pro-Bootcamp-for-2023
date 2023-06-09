@@ -1,0 +1,90 @@
+from flask import Flask, render_template, request
+
+
+
+app = Flask(__name__)
+
+
+
+@app.route('/')
+
+def index():
+
+    return render_template('index.html')
+
+
+
+if __name__ == '__main__':
+
+    app.run(debug=True)
+
+
+
+
+
+
+
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+    <title>Aplicativo de Escrita Online</title>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+
+    <script>
+
+        var timeout;
+
+
+
+        function resetTimer() {
+
+            clearTimeout(timeout);
+
+            timeout = setTimeout(function() {
+
+                // Ação a ser executada quando a inatividade é detectada
+
+                clearText();
+
+            }, 5000); // Defina o tempo em milissegundos aqui (5 segundos neste exemplo)
+
+        }
+
+
+
+        function clearText() {
+
+            $('#text-area').val('');
+
+        }
+
+
+
+        $(document).ready(function() {
+
+            $('#text-area').on('input', function() {
+
+                resetTimer();
+
+            });
+
+        });
+
+</roteiro>
+
+</cabeça>
+
+<corpo>
+
+    <h1>Aplicativo de Escrita Online</h1>
+
+    <textarea id="text-area" rows="10" cols="50"></textarea>
+
+</corpo>
+
+</html>
+
